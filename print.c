@@ -38,11 +38,12 @@ int main() {
 
     if (!yyparse()) {
 	fprintf(cfg, "# Control Flow Graph\n");
+	fprintf(live, "# The Result of Liveness Analysis");
 	s_program();
     }
     
-    fclose(tree);
-    fclose(table);
+    fclose(cfg);
+    fclose(live);
 
     return 0;
 }
@@ -126,6 +127,7 @@ void s_methodDef(struct MethodDef *methoddef) {
     }
 
     workList();
+    print_live();
 }
 
 void s_classMethodDef(struct ClassMethodDef *classmethoddef) {
@@ -153,6 +155,7 @@ void s_classMethodDef(struct ClassMethodDef *classmethoddef) {
     }
 
     workList();
+    print_live();
 }
 
 void s_mainFunc(struct MainFunc *mainfunc) {
@@ -177,6 +180,7 @@ void s_mainFunc(struct MainFunc *mainfunc) {
     }
 
     workList();
+    print_live();
 }
 
 void s_param(struct Param *param) {
@@ -524,11 +528,6 @@ void s_eqltOp(struct EqltOp *eqltop) {
     s_expr(eqltop->rhs);
 }
 
-void print_indent() {
-    for (int i = 0; i < indent; ++i)
-	fprintf(tree, "\t");
-}
-
 void nextBlockName() {
     int i = blockNameLen - 1;
     while (1) {
@@ -637,8 +636,8 @@ int getKeyFromStr(char *str) {
     for (int i = 0; i < HASHSIZE; ++i) {
 	if (stringMap.string[hash] == NULL) {
 	    stringMap.string[hash] = str;
-	    stringMap.key[hash] = count;
-	    stringMap.hashValue[count] = hash;
+	    stringMap.key[hash] = stringMap.count;
+	    stringMap.hashValue[stringMap.count] = hash;
 	    return stringMap.count++;
 	}
 	else if (!strcmp(stringMap.string[hash], str)) {
@@ -741,7 +740,7 @@ void workList() {
 	    blockArr[i].in[j] = blockArr[i].use[j];
 	}
 
-	queue_push_back(i);
+	queue_push_back(queue, i);
     }
 
     while (queue.count > 0) {
@@ -779,7 +778,7 @@ void workList() {
 	if (changed) {
 	    int *pred = blockArr[blockNum].pred;
 	    for (int i = 0; i < predNum; ++i) {
-		queue_push_back(pred[i]);
+		queue_push_back(queue, pred[i]);
 	    }
 	}
     }
@@ -830,81 +829,3 @@ void print_live() {
 	fprintf(live, "}\n");
     }
 }
-
-void print_table(struct Loc *node, int path_len) {
-    struct Loc *childNode = node->child;
-    int while_count = 0;
-    int for_count = 0;
-    int if_count = 0;
-    int newPath_len = path_len;
-
-    if (node->symbol != NULL) {
-	struct Symbol *s = node->symbol;
-	int count = 0;
-	fprintf(table, "Location : %s\n", path);
-	fprintf(table, "%10s %20s %20s %10s %10s\n", "Count", "Type", "Name", "Array", "Role");
-	while (s != NULL) {
-	    fprintf(table, "%10d %20s %20s ", ++count, s->type, s->id);
-	    if (s->array == 0)
-		fprintf(table, "%10s ", "-");
-	    else
-		fprintf(table, "%10d ", s->array);
-	    if (s->role == eVarR)
-		fprintf(table, "%10s\n", "variable");
-	    else if (s->role == eParR)
-		fprintf(table, "%10s\n", "parameter");
-	    s = s->next;
-	}
-	fprintf(table, "\n");
-    }
-
-    if (path_len != 0) {
-	if (path_len + 3 >= path_size) {
-	    path = (char*)realloc(path, sizeof(char) * path_size * 2);
-	    path_size *= 2;
-	}
-	strcat(path, " - ");
-	newPath_len += 3;
-    }
-
-    while (childNode != NULL) {
-	int loc_len;
-	char *loc_name;
-	if (childNode->e == eClassL) {
-	    loc_len = strlen(childNode->id);
-	    loc_name = childNode->id;
-	}
-	else if (childNode->e == eWhileL) {
-	    loc_name = (char *)malloc(sizeof(char) * 17);
-	    sprintf(loc_name, "while(%d)", ++while_count);
-	    loc_len = strlen(loc_name);
-	}
-	else if (childNode->e == eForL) {
-	    loc_name = (char *)malloc(sizeof(char) * 15);
-	    sprintf(loc_name, "for(%d)", ++for_count);
-	    loc_len = strlen(loc_name);
-	}
-	else if (childNode->e == eIfL) {
-	    loc_name = (char *)malloc(sizeof(char) * 14);
-	    sprintf(loc_name, "if(%d)", ++if_count);
-	    loc_len = strlen(loc_name);
-	}
-	else if (childNode->e == eElseL) {
-	    loc_name = (char *)malloc(sizeof(char) * 19);
-	    sprintf(loc_name, "if-else(%d)", if_count);
-	    loc_len = strlen(loc_name);
-	}
-
-	if (newPath_len + loc_len >= path_size) {
-	    path = (char*)realloc(path, sizeof(char) * path_size * 2);
-	    path_size *= 2;
-	}
-	strcat(path, loc_name);
-	print_table(childNode, newPath_len + loc_len);
-	path[newPath_len] = '\0';
-
-	childNode = childNode->next;
-    }
-    path[path_len] = '\0';
-}
-

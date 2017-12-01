@@ -68,6 +68,7 @@ void s_addiOp(struct AddiOp *);
 void s_multOp(struct MultOp *);
 void s_relaOp(struct RelaOp *);
 void s_eqltOp(struct EqltOp *);
+
 void nextBlockName();
 void nextBlock();
 void clearBlockArr();
@@ -76,8 +77,11 @@ void addUse(char *);
 void addSucc(int, int);
 int getKeyFromStr(char *);
 char* getStrFromKey(int);
-int string_hash(unsigned char *)
-void print_indent(void);
-void print_table(struct Loc *, int);
+int string_hash(unsigned char *);
+void queue_init(Queue, int);
+void queue_push_back(Queue, int);
+int queue_pop(Queue);
+void workList();
+void print_live();
 
 #endif
