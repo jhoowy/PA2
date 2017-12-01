@@ -675,7 +675,7 @@ void queue_init(Queue q, int size) {
 	q.arr = (int *)calloc(size, sizeof(int));
     }
     else if (sizeof(q.arr) / sizeof(int) < size) {
-	q.arr = (int *)realloc(size, sizeof(int));
+	q.arr = (int *)realloc(q.arr, size * sizeof(int));
     }
     q.queueSize = size;
     q.head = 0;
