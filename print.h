@@ -31,10 +31,6 @@ struct Block {
 };
 
 struct BlockInfo {
-    int inNum;
-    int outNum;
-    int defNum;
-    int useNum;
     int predNum;
     int succNum;
 };

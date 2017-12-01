@@ -20,6 +20,7 @@ int blockNameLen;
 int blockNum;
 struct Block *blockArr;
 struct BlockInfo *blockInfoArr;
+int bitVecSize;
 
 struct RefVarExpr *assignTarget;
 bool isBlockEmpty = true;
@@ -564,6 +565,10 @@ void clearBlockArr() {
     memset(blockInfoArr, 0, sizeof(blockInfoArr));
     memset(stringMap.key, 0, HASHSIZE * sizeof(int));
     memset(stringMap.string, 0, HASHSIZE * sizeof(char *));
+	for (int i = 0; i < blockNum; ++i) {
+		memset(blockArr[i].def, 0, stringMap.count);
+		memset(blockArr[i].use, 0, stringMap.count);
+	}
     blockNum = 0;
     stringMap.count = 0;
     isBlockEmpty = true;
@@ -572,30 +577,30 @@ void clearBlockArr() {
 
 void addDef(char *id) {
     int key = getKeyFromStr(id);
-    int defNum = blockInfoArr[blockNum].defNum;
     struct Block *curBlock = &blockArr[blockNum];
 
     if (curBlock->def == NULL)
-	curBlock->def = (int *)calloc(10, sizeof(int));
-    if (sizeof(curBlock->def)/sizeof(int) <= defNum)
-	curBlock->def = (int *)realloc(curBlock->def, sizeof(int) * 2 * defNum);
+		curBlock->def = (unsigned long *)calloc(10, sizeof(unsigned long));
+    if (sizeof(curBlock->def) <= key) {
+		curBlock->def = (unsigned long *)realloc(curBlock->def, key * 2);
+		memset(curBlock->def + key, 0, key);
+	}
 
-    curBlock->def[defNum] = key;
-    blockInfoArr[blockNum].defNum++;
+	curBlock->def[key / sizeof(unsigned long)] |= (unsigned long) 1 << (key % sizeof(unsigned long));
 }
 
 void addUse(char *id) {
     int key = getKeyFromStr(id);
-    int useNum = blockInfoArr[blockNum].useNum;
     struct Block *curBlock = &blockArr[blockNum];
 
     if (curBlock->use == NULL)
-	curBlock->use = (int *)calloc(10, sizeof(int));
-    if (sizeof(curBlock->use)/sizeof(int) <= useNum)
-	curBlock->use = (int *)realloc(curBlock->use, sizeof(int) * 2 * useNum);
+		curBlock->use = (unsigned long *)calloc(10, sizeof(unsigned long));
+    if (sizeof(curBlock->use) <= key) {
+		curBlock->use = (unsigned long *)realloc(curBlock->use, key * 2);
+		memset(curBlock->use + key, 0, key);
+	}
 
-    curBlock->use[useNum] = key;
-    blockInfoArr[blockNum].useNum++;
+	curBlock->use[key / sizeof(unsigned long)] |= (unsigned long) 1 << (key % sizeof(unsigned long));
 }
 
 void addSucc(int sNum, int pNum) {
@@ -700,11 +705,15 @@ int queue_pop(Queue q) {
     return result;
 }
 
+// ----------------------------------------------
+//               Liveness Analysis
+// ----------------------------------------------
+
 // Iterative worklist algorithm
 void workList() {
     // Initialize (IN = USE)
-    int bitVecSize = (stringMap.count / sizeof(unsigned long)) + 1;
-    queue_init(queue, blockNum);
+    bitVecSize = (stringMap.count / sizeof(unsigned long)) + 1;
+    queue_init(queue, blockNum * 4);
     for (int i = blockNum - 1; i >= 0; --i) {
 	if (blockArr[i].in == NULL) {
 	    blockArr[i].in = (unsigned long *)calloc(bitVecSize, sizeof(unsigned long));
@@ -738,6 +747,7 @@ void workList() {
     while (queue.count > 0) {
 	int block = queue_pop(queue);
 	int succNum = blockInfoArr[block].succNum;
+	int predNum = blockInfoArr[block].predNum;
 	unsigned long *curOut = blockArr[block].out;
 	unsigned long *curIn = blockArr[block].in;
 	unsigned long *curUse = blockArr[block].use;
@@ -747,6 +757,9 @@ void workList() {
 	// OUT = succersors' IN
 	memset(blockArr[block].out, 0, stringMap.count);
 	for (int i = 0; i < succNum; ++i) {
+	    if (blockArr[block].succ[i] == -1)
+		continue;
+
 	    unsigned long *succIn = blockArr[blockArr[block].succ[i]].in;
 
 	    for (int j = 0; j < bitVecSize; ++j) {
@@ -763,6 +776,58 @@ void workList() {
 	    }
 	}
 
+	if (changed) {
+	    int *pred = blockArr[blockNum].pred;
+	    for (int i = 0; i < predNum; ++i) {
+		queue_push_back(pred[i]);
+	    }
+	}
+    }
+}
+
+void print_live() {
+    if (className != NULL)
+	fprintf(live, "\n%s::%s\n", className, methodName);
+    else
+	fprintf(live, "\n%s\n", methodName);
+    fprintf(live, "\t\tIN\t\tOUT\n");
+
+    for (int i = 0; i < blockNum; ++i) {
+	unsigned long *in = blockArr[i].in;
+	unsigned long *out = blockArr[i].out;
+	char *comma = "";
+	fprintf(live, "%s%d : ", blockName, i);
+
+	fprintf(live, "{");
+	for (int j = 0; j < bitVecSize; ++j) {
+	    unsigned long bits = in[j];
+	    int key = j * sizeof(unsigned long);
+	    while (bits != 0) {
+		if (bits % 2) {
+		    fprintf(live, "%s%s", comma, getStrFromKey(key));
+		    comma = ", ";
+		}
+		++key;
+		bits = bits >> 1;
+	    }
+	}
+	fprintf(live, "}");
+	
+	comma = "";
+	fprintf(live, "\t{");
+	for (int j = 0; j < bitVecSize; ++j) {
+	    unsigned long bits = out[j];
+	    int key = j * sizeof(unsigned long);
+	    while (bits != 0) {
+		if (bits % 2) {
+		    fprintf(live, "%s%s", comma, getStrFromKey(key));
+		    comma = ", ";
+		}
+		++key;
+		bits = bits >> 1;
+	    }
+	}
+	fprintf(live, "}\n");
     }
 }
 
