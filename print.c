@@ -532,8 +532,8 @@ void nextBlockName() {
     int i = blockNameLen - 1;
     while (1) {
 	if (i < 0) {
-	    if (sizeof(blockName) <= blockNameLen - 1) {
-		blockName = (char *)realloc(blockName ,blockNameLen * 2);
+	    if (sizeof(blockName) <= blockNameLen) {
+		blockName = (char *)realloc(blockName, (blockNameLen + 1) * 2);
 	    }
 	    blockName[blockNameLen] = 'A';
 	    blockNameLen++;
