@@ -118,8 +118,12 @@ void s_methodDef(struct MethodDef *methoddef) {
 	nextBlock();
     }
     else if (!endWithRet && blockNum != 0) {
-	blockInfoArr[blockNum-1].succNum--;
-	addSucc(-1, blockNum - 1);
+	int predNum = blockInfoArr[blockNum].predNum;
+	for (int i = 0; i < predNum; ++i) {
+	    int predBlockNum = blockArr[blockNum].pred[i];
+	    blockInfoArr[predBlockNum].succNum--;
+	    addSucc(-1, predBlockNum);
+	}
     }
     else if (blockNum == 0) {
 	addSucc(-1, blockNum);
@@ -146,8 +150,12 @@ void s_classMethodDef(struct ClassMethodDef *classmethoddef) {
 	nextBlock();
     }
     else if (!endWithRet && blockNum != 0) {
-	blockInfoArr[blockNum-1].succNum--;
-	addSucc(-1, blockNum - 1);
+	int predNum = blockInfoArr[blockNum].predNum;
+	for (int i = 0; i < predNum; ++i) {
+	    int predBlockNum = blockArr[blockNum].pred[i];
+	    blockInfoArr[predBlockNum].succNum--;
+	    addSucc(-1, predBlockNum);
+	}
     }
     else if (blockNum == 0) {
 	addSucc(-1, blockNum);
@@ -171,8 +179,12 @@ void s_mainFunc(struct MainFunc *mainfunc) {
 	nextBlock();
     }
     else if (!endWithRet && blockNum != 0) {
-	blockInfoArr[blockNum-1].succNum--;
-	addSucc(-1, blockNum - 1);
+	int predNum = blockInfoArr[blockNum].predNum;
+	for (int i = 0; i < predNum; ++i) {
+	    int predBlockNum = blockArr[blockNum].pred[i];
+	    blockInfoArr[predBlockNum].succNum--;
+	    addSucc(-1, predBlockNum);
+	}
     }
     else if (blockNum == 0) {
 	addSucc(-1, blockNum);
@@ -280,9 +292,13 @@ void s_whileStmt(struct WhileStmt *whilestmt) {
     }
     else if (isBlockEmpty) {
 	if (!endWithRet) {
-	    blockInfoArr[blockNum - 1].succNum = 0;
+	    int predNum = blockInfoArr[blockNum].predNum;
+	    for (int i = 0; i < predNum; ++i) {
+		int predBlockNum = blockArr[blockNum].pred[i];
+		blockInfoArr[predBlockNum].succNum = 0;
+		addSucc(condBlockNum, predBlockNum);
+	    }
 	    blockInfoArr[blockNum].predNum = 0;
-	    addSucc(condBlockNum, blockNum -1);
 	}
     }
 
@@ -623,7 +639,7 @@ void addSucc(int sNum, int pNum) {
 	succBlock->pred = (int *)realloc(succBlock->pred, sizeof(int) * (*predNum) * 2);
     }
     succBlock->pred[*predNum] = pNum;
-    *predNum++;
+    *predNum += 1;
 }
 
 // ----------------------------------------------
@@ -670,36 +686,36 @@ int string_hash(unsigned char *str) {
 //               Queue Function
 // ----------------------------------------------
 
-void queue_init(Queue q, int size) {
-    if (q.arr == NULL) {
-	q.arr = (int *)calloc(size, sizeof(int));
+void queue_init(Queue *q, int size) {
+    if (q->arr == NULL) {
+	q->arr = (int *)calloc(size, sizeof(int));
     }
-    else if (sizeof(q.arr) / sizeof(int) < size) {
-	q.arr = (int *)realloc(q.arr, size * sizeof(int));
+    else if (sizeof(q->arr) / sizeof(int) < size) {
+	q->arr = (int *)realloc(q->arr, size * sizeof(int));
     }
-    q.queueSize = size;
-    q.head = 0;
-    q.tail = 0;
-    q.count = 0;
+    q->queueSize = size;
+    q->head = 0;
+    q->tail = 0;
+    q->count = 0;
 }
 
-void queue_push_back(Queue q, int v) {
-    if (q.count >= q.queueSize)
+void queue_push_back(Queue *q, int v) {
+    if (q->count >= q->queueSize)
 	return;
 
-    q.arr[q.head] = v;
-    q.head = (q.head + 1) % q.queueSize;
-    q.count++;
+    q->arr[q->head] = v;
+    q->head = (q->head + 1) % q->queueSize;
+    q->count++;
 }
 
-int queue_pop(Queue q) {
+int queue_pop(Queue *q) {
     int result;
-    if (q.count <= 0)
+    if (q->count <= 0)
 	return -1;
 
-    result = q.arr[q.tail];
-    q.tail =(q.tail + 1) % q.queueSize;
-    q.count--;
+    result = q->arr[q->tail];
+    q->tail =(q->tail + 1) % q->queueSize;
+    q->count--;
 
     return result;
 }
@@ -712,7 +728,7 @@ int queue_pop(Queue q) {
 void workList() {
     // Initialize (IN = USE)
     bitVecSize = (stringMap.count / sizeof(unsigned long)) + 1;
-    queue_init(queue, blockNum * 4);
+    queue_init(&queue, blockNum * 4);
     for (int i = blockNum - 1; i >= 0; --i) {
 	if (blockArr[i].in == NULL) {
 	    blockArr[i].in = (unsigned long *)calloc(bitVecSize, sizeof(unsigned long));
@@ -736,15 +752,34 @@ void workList() {
 	    memset(blockArr[i].out, 0, stringMap.count);
 	}
 
+	int curSize;
+
+	if (blockArr[i].use == NULL) {
+	    blockArr[i].use = (unsigned long *)calloc(bitVecSize, sizeof(unsigned long));
+	}
+	else if ((curSize = sizeof(blockArr[i].use) / sizeof(unsigned long)) < bitVecSize) {
+	    blockArr[i].use = (unsigned long *)realloc(blockArr[i].use, bitVecSize * sizeof(unsigned long));
+	    memset(blockArr[i].use + curSize, 0, (bitVecSize - curSize) * sizeof(unsigned long));
+	}
+
+	if (blockArr[i].def == NULL) {
+	    blockArr[i].def = (unsigned long *)calloc(bitVecSize, sizeof(unsigned long));
+	}
+	else if ((curSize = sizeof(blockArr[i].def) / sizeof(unsigned long)) < bitVecSize) {
+	    blockArr[i].def = (unsigned long *)realloc(blockArr[i].def, bitVecSize * sizeof(unsigned long));
+	    memset(blockArr[i].def + curSize, 0, (bitVecSize - curSize) * sizeof(unsigned long));
+	}
+
+
 	for (int j = 0; j < bitVecSize; ++j) {
 	    blockArr[i].in[j] = blockArr[i].use[j];
 	}
 
-	queue_push_back(queue, i);
+	queue_push_back(&queue, i);
     }
 
     while (queue.count > 0) {
-	int block = queue_pop(queue);
+	int block = queue_pop(&queue);
 	int succNum = blockInfoArr[block].succNum;
 	int predNum = blockInfoArr[block].predNum;
 	unsigned long *curOut = blockArr[block].out;
@@ -754,7 +789,7 @@ void workList() {
 	bool changed = false;
 
 	// OUT = succersors' IN
-	memset(blockArr[block].out, 0, stringMap.count);
+	memset(curOut, 0, stringMap.count);
 	for (int i = 0; i < succNum; ++i) {
 	    if (blockArr[block].succ[i] == -1)
 		continue;
@@ -762,7 +797,7 @@ void workList() {
 	    unsigned long *succIn = blockArr[blockArr[block].succ[i]].in;
 
 	    for (int j = 0; j < bitVecSize; ++j) {
-		curOut[j] |= succIn[j];
+		curOut[j] = curOut[j] | succIn[j];
 	    }
 	}
 
@@ -776,9 +811,9 @@ void workList() {
 	}
 
 	if (changed) {
-	    int *pred = blockArr[blockNum].pred;
+	    int *pred = blockArr[block].pred;
 	    for (int i = 0; i < predNum; ++i) {
-		queue_push_back(queue, pred[i]);
+		queue_push_back(&queue, pred[i]);
 	    }
 	}
     }

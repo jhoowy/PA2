@@ -78,9 +78,9 @@ void addSucc(int, int);
 int getKeyFromStr(char *);
 char* getStrFromKey(int);
 int string_hash(unsigned char *);
-void queue_init(Queue, int);
-void queue_push_back(Queue, int);
-int queue_pop(Queue);
+void queue_init(Queue *, int);
+void queue_push_back(Queue *, int);
+int queue_pop(Queue *);
 void workList();
 void print_live();
 
