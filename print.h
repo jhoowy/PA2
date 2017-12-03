@@ -2,19 +2,20 @@
 #define PRINT_H
 #define HASHSIZE 1334
 
-#include "AST.h"
+#include "DFA.h"
 
 struct Program *head;
 
-struct Map {
+typedef struct Map_ {
     char *string[HASHSIZE];
     int hashValue[HASHSIZE];
     int key[HASHSIZE];
     int count;
-};
+} Map;
 
 typedef struct Queue_ {
     int *arr;
+    int *check;
     int queueSize;
     int head;
     int tail;
@@ -26,6 +27,7 @@ struct Block {
     unsigned long *out;
     unsigned long *def;
     unsigned long *use;
+    char *context;
     int *pred;
     int succ[2];
 };
@@ -33,13 +35,13 @@ struct Block {
 struct BlockInfo {
     int predNum;
     int succNum;
+    long contextLen;
 };
 
 void s_program(void);
 void s_class(struct Class *);
 void s_member(struct Member *);
 void s_varDecl(struct VarDecl *);
-void s_methodDecl(struct MethodDecl *);
 void s_methodDef(struct MethodDef *);
 void s_classMethodDef(struct ClassMethodDef *);
 void s_mainFunc(struct MainFunc *);
@@ -72,16 +74,25 @@ void s_eqltOp(struct EqltOp *);
 void nextBlockName();
 void nextBlock();
 void clearBlockArr();
+
 void addDef(char *);
 void addUse(char *);
 void addSucc(int, int);
+
 int getKeyFromStr(char *);
 char* getStrFromKey(int);
 int string_hash(unsigned char *);
+
 void queue_init(Queue *, int);
 void queue_push_back(Queue *, int);
 int queue_pop(Queue *);
+
 void workList();
 void print_live();
+
+void addContext(char *);
+void addContextInt(int);
+void addContextFloat(float);
+void print_cfg(struct Param *);
 
 #endif

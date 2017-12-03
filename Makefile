@@ -1,7 +1,7 @@
 all:
-	flex AST.l
-	bison -d AST.y
-	gcc lex.yy.c AST.tab.c print.c -o AST -lfl -g
+	flex DFA.l
+	bison -d DFA.y
+	gcc lex.yy.c DFA.tab.c print.c -o DFA -lfl -g
 
 clean:
-	rm -rf lex.yy.c AST.tab.c AST.tab.h AST tree.txt
+	rm -rf lex.yy.c DFA.tab.c DFA.tab.h DFA liveness.out CFG.out

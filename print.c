@@ -1,17 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "AST.h"
+#include "DFA.h"
 #include "print.h"
+#include "timer.c"
 
 FILE *cfg;
 FILE *live;
 
 // String Hashing
-struct Map stringMap;
+Map stringMap;
 
 // Queue for Worklist
 Queue queue;
+
+// Total time spent for DFA
+double total_time = 0;
 
 char *className;
 char *methodName;
@@ -39,8 +43,11 @@ int main() {
     if (!yyparse()) {
 	fprintf(cfg, "# Control Flow Graph\n");
 	fprintf(live, "# The Result of Liveness Analysis");
+	printf("DFA running time for Each Block\n");
 	s_program();
     }
+
+    printf("Total DFA running time: %fs\n", total_time);
     
     fclose(cfg);
     fclose(live);
@@ -95,12 +102,21 @@ void s_varDecl(struct VarDecl *vardecl) {
 	s_varDecl(vardecl->prev);
 
     if (vardecl->assignType != eNon) {
+	addContext("\t");
+
 	addDef(vardecl->ident->id);
+	s_ident(vardecl->ident);
+
+	addContext(" = ");
+	
+	if (vardecl->assignType == eAsFloat)
+	    addContextFloat(vardecl->assigner.floatnum);
+	else
+	    addContextInt(vardecl->assigner.intnum);
+	addContext("\n");
+	
 	isBlockEmpty = false;
     }
-}
-
-void s_methodDecl(struct MethodDecl *methoddecl) {
 }
 
 void s_methodDef(struct MethodDef *methoddef) {
@@ -132,6 +148,7 @@ void s_methodDef(struct MethodDef *methoddef) {
 
     workList();
     print_live();
+    print_cfg(methoddef->param);
 }
 
 void s_classMethodDef(struct ClassMethodDef *classmethoddef) {
@@ -164,6 +181,7 @@ void s_classMethodDef(struct ClassMethodDef *classmethoddef) {
 
     workList();
     print_live();
+    print_cfg(classmethoddef->param);
 }
 
 void s_mainFunc(struct MainFunc *mainfunc) {
@@ -193,21 +211,41 @@ void s_mainFunc(struct MainFunc *mainfunc) {
 
     workList();
     print_live();
+    print_cfg(NULL);
 }
 
 void s_param(struct Param *param) {
     if (param->prev != NULL) {
 	s_param(param->prev);
+	fprintf(cfg, ", ");
     }
 
     s_type(param->type);
-    s_ident(param->ident);
+    fprintf(cfg, "%s", param->ident->id);
+    if (param->ident->len != 0) {
+	fprintf(cfg, "[%d]", param->ident->len);
+    }
 }
 
 void s_ident(struct Ident *ident) {
+    addContext(ident->id);
+    if (ident->len != 0) {
+	addContext("[");
+	addContextInt(ident->len);
+	addContext("]");
+    }
 }
 
 void s_type(struct Type *type) {
+    if (type->e == eInt) {
+	fprintf(cfg, "int ");
+    }
+    else if (type->e == eFloat) {
+	fprintf(cfg, "float ");
+    }
+    else {
+	fprintf(cfg, "%s ", type->id);
+    }
 }
 
 void s_compoundStmt(struct CompoundStmt *compoundstmt) {
@@ -243,21 +281,36 @@ void s_stmt(struct Stmt *stmt) {
 }
 
 void s_exprStmt(struct ExprStmt *exprstmt) {
+    addContext("\t");
     s_expr(exprstmt->expr);
+    addContext("\n"); 
     endWithRet = false;
 }
 
 void s_assignStmt(struct AssignStmt *assignstmt) {
+    addContext("\t");
+
     assignTarget = assignstmt->refVarExpr;
     s_refVarExpr(assignstmt->refVarExpr);
     assignTarget = NULL;
+
+    addContext(" = ");
+
     s_expr(assignstmt->expr);
+
+    addContext("\n");
+
     endWithRet = false;
 }
 
 void s_retStmt(struct RetStmt *retstmt) {
+    addContext("\treturn ");
+
     if (retstmt->expr != NULL)
 	s_expr(retstmt->expr);
+
+    addContext("\n");
+
     addSucc(-1, blockNum);
     nextBlock();
     isBlockEmpty = true;
@@ -275,7 +328,9 @@ void s_whileStmt(struct WhileStmt *whilestmt) {
 	addSucc(blockNum, startBlockNum);
     }
     condBlockNum = blockNum;
+    addContext("\t");
     s_expr(whilestmt->cond);
+    addContext("\n");
 
     // Body Block
     nextBlock();
@@ -328,7 +383,9 @@ void s_doStmt(struct DoStmt *dostmt) {
 	nextBlock();
 	addSucc(blockNum, lastBodyBlockNum);
     }
+    addContext("\t");
     s_expr(dostmt->cond);
+    addContext("\n");
     condBlockNum = blockNum;
     addSucc(bodyBlockNum, condBlockNum);
 
@@ -345,13 +402,18 @@ void s_forStmt(struct ForStmt *forstmt) {
     int lastBodyBlockNum;
     int condBlockNum;
     int incrBlockNum;
+
+    addContext("\t");
     s_expr(forstmt->init);
+    addContext("\n");
 
     // Cond Block
     nextBlock();
     condBlockNum = blockNum;
     addSucc(condBlockNum, startBlockNum);
+    addContext("\t");
     s_expr(forstmt->cond);
+    addContext("\n");
 
     // Body Block
     nextBlock();
@@ -371,7 +433,9 @@ void s_forStmt(struct ForStmt *forstmt) {
 	addSucc(blockNum, lastBodyBlockNum);
     }
     incrBlockNum = blockNum;
+    addContext("\t");
     s_expr(forstmt->incr);
+    addContext("\n");
     addSucc(condBlockNum, incrBlockNum);
 
     // Next Block
@@ -395,7 +459,9 @@ void s_ifStmt(struct IfStmt *ifstmt) {
     }
 
     // Cond Block
+    addContext("\t");
     s_expr(ifstmt->cond);
+    addContext("\n");
     condBlockNum = blockNum;
 
     // Body Block
@@ -439,7 +505,7 @@ void s_ifStmt(struct IfStmt *ifstmt) {
     if (!bodyEndWithRet) {
 	addSucc(blockNum, lastBodyBlockNum);
     }
-    isBlockEmpty = false;
+    isBlockEmpty = true;
 }
 
 void s_expr(struct Expr *expr) {
@@ -448,6 +514,13 @@ void s_expr(struct Expr *expr) {
     else if (expr->e == eRef) {
 	s_refExpr(expr->type.refExpr);
     }
+    else if (expr->e == eIntnum) {
+	addContextInt(expr->type.intnum);
+    }
+    else if (expr->e == eFloatnum) {
+	addContextFloat(expr->type.floatnum);
+    }
+
     isBlockEmpty = false;
 }
 
@@ -463,7 +536,9 @@ void s_operExpr(struct OperExpr *operexpr) {
     else if (operexpr->e == eEqlt)
 	s_eqltOp(operexpr->type.eqlt);
     else if (operexpr->e == eBracket) {
+	addContext("(");
 	s_expr(operexpr->type.bracket);
+	addContext(")");
     }
 }
 
@@ -477,6 +552,7 @@ void s_refExpr(struct RefExpr *refexpr) {
 void s_refVarExpr(struct RefVarExpr *refvarexpr) {
     if (refvarexpr->refExpr != NULL) {
 	s_refExpr(refvarexpr->refExpr);
+	addContext(".");
     }
 
     if (refvarexpr->refExpr == NULL) {
@@ -492,36 +568,52 @@ void s_refVarExpr(struct RefVarExpr *refvarexpr) {
 void s_refCallExpr(struct RefCallExpr *refcallexpr) {
     if (refcallexpr->refExpr != NULL) {
 	s_refExpr(refcallexpr->refExpr);
+	addContext(".");
     }
 
     s_callExpr(refcallexpr->callExpr);
 }
 
 void s_identExpr(struct IdentExpr *identexpr) {
+    addContext(identexpr->id);
     if (identexpr->expr != NULL) {
+	addContext("[");
 	s_expr(identexpr->expr);
+	addContext("]");
     }
 }
 
 void s_callExpr(struct CallExpr *callexpr) {
+    addContext(callexpr->id);
+    addContext("(");
     if (callexpr->arg != NULL)
 	s_arg(callexpr->arg);
+    addContext(")");
 }
 
 void s_arg(struct Arg *arg) {
     if (arg->prev != NULL) {
 	s_arg(arg->prev);
+	addContext(", ");
     }
 
     s_expr(arg->expr);
 }
 
 void s_unOp(struct UnOp *unop) {
+    addContext("-");
     s_expr(unop->expr);
 }
 
 void s_addiOp(struct AddiOp *addiop) {
     s_expr(addiop->lhs);
+
+    if (addiop->e == ePlus) {
+	addContext(" + ");
+    }
+    else if (addiop->e == eMinus) {
+	addContext(" - ");
+    }
 
     s_expr(addiop->rhs);
 }
@@ -529,11 +621,31 @@ void s_addiOp(struct AddiOp *addiop) {
 void s_multOp(struct MultOp *multop) {
     s_expr(multop->lhs);
 
+    if (multop->e == eMul) {
+	addContext(" * ");
+    }
+    else if (multop->e == eDiv) {
+	addContext(" / ");
+    }
+
     s_expr(multop->rhs);
 }
 
 void s_relaOp(struct RelaOp *relaop) {
     s_expr(relaop->lhs);
+
+    if (relaop->e == eLT) {
+	addContext(" < ");
+    }
+    else if (relaop->e == eGT) {
+	addContext(" > ");
+    }
+    else if (relaop->e == eLE) {
+	addContext(" <= ");
+    }
+    else if (relaop->e == eGE) {
+	addContext(" >= ");
+    }
 
     s_expr(relaop->rhs);
 }
@@ -541,8 +653,19 @@ void s_relaOp(struct RelaOp *relaop) {
 void s_eqltOp(struct EqltOp *eqltop) {
     s_expr(eqltop->lhs);
 
+    if (eqltop->e == eEQ) {
+	addContext(" == ");
+    }
+    else if (eqltop->e == eNE) {
+	addContext(" != ");
+    }
+
     s_expr(eqltop->rhs);
 }
+
+// ----------------------------------------------
+//               Block Management
+// ----------------------------------------------
 
 void nextBlockName() {
     int i = blockNameLen - 1;
@@ -590,6 +713,10 @@ void clearBlockArr() {
     endWithRet = false;
 }
 
+// ----------------------------------------------
+//               DFI Management
+// ----------------------------------------------
+
 void addDef(char *id) {
     int key = getKeyFromStr(id);
     struct Block *curBlock = &blockArr[blockNum];
@@ -618,6 +745,7 @@ void addUse(char *id) {
 	curBlock->use[key / sizeof(unsigned long)] |= (unsigned long) 1 << (key % sizeof(unsigned long));
 }
 
+// addSucc function also adds predecessor
 void addSucc(int sNum, int pNum) {
     int *succNum = &blockInfoArr[pNum].succNum;
     int *predNum = &blockInfoArr[sNum].predNum;
@@ -687,13 +815,20 @@ int string_hash(unsigned char *str) {
 // ----------------------------------------------
 
 void queue_init(Queue *q, int size) {
+    int maxSize = size * 4;
     if (q->arr == NULL) {
-	q->arr = (int *)calloc(size, sizeof(int));
+	q->arr = (int *)calloc(maxSize, sizeof(int));
+	q->check = (int *)calloc(size, sizeof(int));
     }
-    else if (sizeof(q->arr) / sizeof(int) < size) {
-	q->arr = (int *)realloc(q->arr, size * sizeof(int));
+    else if (sizeof(q->arr) / sizeof(int) < maxSize) {
+	q->arr = (int *)realloc(q->arr, maxSize * sizeof(int));
     }
-    q->queueSize = size;
+
+    if (sizeof(q->check) / sizeof(int) < size) {
+	q->check = (int *)realloc(q->check, size * sizeof(int));
+    }
+    memset(q->check, 0, size * sizeof(int));
+    q->queueSize = maxSize;
     q->head = 0;
     q->tail = 0;
     q->count = 0;
@@ -703,9 +838,12 @@ void queue_push_back(Queue *q, int v) {
     if (q->count >= q->queueSize)
 	return;
 
-    q->arr[q->head] = v;
-    q->head = (q->head + 1) % q->queueSize;
-    q->count++;
+    if (q->check[v] == 0) {
+	q->arr[q->head] = v;
+	q->check[v] = 1;
+	q->head = (q->head + 1) % q->queueSize;
+	q->count++;
+    }
 }
 
 int queue_pop(Queue *q) {
@@ -714,6 +852,7 @@ int queue_pop(Queue *q) {
 	return -1;
 
     result = q->arr[q->tail];
+    q->check[result] = 0;
     q->tail =(q->tail + 1) % q->queueSize;
     q->count--;
 
@@ -726,9 +865,12 @@ int queue_pop(Queue *q) {
 
 // Iterative worklist algorithm
 void workList() {
+    // Setting timer
+    reset_timer();
+
     // Initialize (IN = USE)
     bitVecSize = (stringMap.count / sizeof(unsigned long)) + 1;
-    queue_init(&queue, blockNum * 4);
+    queue_init(&queue, blockNum);
     for (int i = blockNum - 1; i >= 0; --i) {
 	if (blockArr[i].in == NULL) {
 	    blockArr[i].in = (unsigned long *)calloc(bitVecSize, sizeof(unsigned long));
@@ -817,6 +959,10 @@ void workList() {
 	    }
 	}
     }
+
+    double time = lab_timer();
+    total_time += time;
+    printf("Block %s: %fs\n", blockName, time);
 }
 
 void print_live() {
@@ -862,5 +1008,93 @@ void print_live() {
 	    }
 	}
 	fprintf(live, "}\n");
+    }
+}
+
+// ----------------------------------------------
+//                 CFG Printing
+// ----------------------------------------------
+
+void addContext(char *id) {
+    int idLen = strlen(id);
+
+    if (blockArr[blockNum].context == NULL) {
+	blockArr[blockNum].context = (char *)calloc(20, sizeof(char));
+    }
+
+    if (blockInfoArr[blockNum].contextLen + idLen >= sizeof(blockArr[blockNum].context)) {
+	blockArr[blockNum].context = (char *)realloc(blockArr[blockNum].context, sizeof(char) * (blockInfoArr[blockNum].contextLen + idLen) * 2);
+    }
+
+    strcat(blockArr[blockNum].context, id);
+    blockInfoArr[blockNum].contextLen += idLen;
+}
+
+void addContextInt(int intnum) {
+    char buffer[15];
+    int strLen;
+
+    sprintf(buffer, "%d", intnum);
+    addContext(buffer);
+}
+
+void addContextFloat(float floatnum) {
+    char buffer[100];
+    int strLen;
+
+    strLen = snprintf(buffer, 100, "%f", floatnum);
+    if (strLen > 100) {
+	char *long_buffer = (char *)malloc(strLen + 1);
+	sprintf(long_buffer, "%f", floatnum);
+	addContext(long_buffer);
+	free(long_buffer);
+    }
+    else
+	addContext(buffer);
+}
+
+void print_cfg(struct Param *param) {
+    char *comma;
+
+    if (className != NULL) {
+	fprintf(cfg, "\n%s::%s(", className, methodName);
+	if (param != NULL) {
+	    s_param(param);
+	}
+	fprintf(cfg, ")");
+    }
+    else
+	fprintf(cfg, "\nmain()");
+
+    fprintf(cfg, "\t\t[%s0-%d]\n", blockName, blockNum - 1);
+
+    for (int i = 0; i < blockNum; ++i) {
+	fprintf(cfg, "\n%s%d\n{\n%s}\n", blockName, i, blockArr[i].context);
+
+	comma = "";
+	fprintf(cfg, "Predecessor: ");
+	if (i == 0) {
+	    fprintf(cfg, "start");
+	    comma = ", ";
+	}
+	
+	int predNum = blockInfoArr[i].predNum;
+	for (int j = 0; j < predNum; ++j) {
+	    fprintf(cfg, "%s%s%d", comma, blockName, blockArr[i].pred[j]);
+	    comma = ", ";
+	}
+
+	comma = "";
+	fprintf(cfg, "\nSuccessor: ");
+	int succNum = blockInfoArr[i].succNum;
+	for (int j = 0; j < succNum; ++j) {
+	    if (blockArr[i].succ[j] == -1) {
+		fprintf(cfg, "%send", comma);
+	    }
+	    else
+		fprintf(cfg, "%s%s%d", comma, blockName, blockArr[i].succ[j]);
+	    comma = ", ";
+	}
+	fprintf(cfg, "\n");
     }
 }
